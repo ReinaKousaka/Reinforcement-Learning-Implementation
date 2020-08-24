@@ -1,70 +1,62 @@
-# The file is from: https://github.com/jng985/BlackjackEnv_gym
-
 import numpy as np
-from mpl_toolkits.mplot3d import Axes3D
-import matplotlib.pyplot as plt
-from mpl_toolkits.axes_grid1 import make_axes_locatable
+import gym
+from collections import defaultdict
+from matplotlib import pyplot as plt
+from plot_utils import plot_blackjack_values
 
+STICK = 0
+HIT = 1
 
-def plot_blackjack_values(V):
-    def get_Z(x, y, usable_ace):
-        if (x, y, usable_ace) in V:
-            return V[x, y, usable_ace]
-        else:
-            return 0
+def generate_episode(env):
+	episode = []  # A list of tuples (state, action, reward)
+	state = env.reset()
+	while True:
+		action = STICK if state[0] >= 20 else HIT  # We stick only if the sum is 20 or 21
+		next_state, reward, done, info = env.step(action)
+		episode.append((state, action, reward))
+		state = next_state
+		if done:
+			break
+	return episode
 
-    def get_figure(usable_ace, ax):
-        x_range = np.arange(11, 22)
-        y_range = np.arange(1, 11)
-        X, Y = np.meshgrid(x_range, y_range)
+def on_policy_MC_prediction_first(env, num_episode, gamma=1):
+	""" The first-visit MC prediction """
+	returns = defaultdict(list)
+	for _ in range(num_episode):
+		episode = generate_episode(env)
+		G = np.zeros(len(episode))
+		for i, t in enumerate(reversed(episode)):
+			state, action, reward = t
+			G[i] = gamma * G[i] + reward
+		state_appear = {}
+		for i, t in enumerate(episode):
+			state, action, reward = t
+			if state not in state_appear:
+				state_appear[state] = 1
+				returns[state].append(G[i])
+	# Take the average
+	V = {}
+	for key, value in returns.items():
+		V[key] = np.mean(value)
+	return V
 
-        Z = np.array([get_Z(x, y, usable_ace) for x, y in zip(np.ravel(X), np.ravel(Y))]).reshape(X.shape)
+def on_policy_MC_prediction_every(env, num_episode, gamma=1):
+	""" The every-visit version MC prediction"""
+	returns = defaultdict(list)
+	for _ in range(num_episode):
+		episode = generate_episode(env)
+		states, actions, rewards = zip(*episode)
+		discount_vector = np.array([gamma ** i for i in range(len(rewards) + 1)])
+		for i, state, in enumerate(states):
+			returns[state].append(np.dot(rewards[i:], discount_vector[:len(rewards) - i]))
+	V = {}
+	for key, value in returns.items():
+		V[key] = np.mean(value)
+	return V
 
-        surf = ax.plot_surface(X, Y, Z, rstride=1, cstride=1, cmap=plt.cm.coolwarm, vmin=-1.0, vmax=1.0)
-        ax.set_xlabel('Player\'s Current Sum')
-        ax.set_ylabel('Dealer\'s Showing Card')
-        ax.set_zlabel('State Value')
-        ax.view_init(ax.elev, -120)
-
-    fig = plt.figure(figsize=(20, 20))
-    ax = fig.add_subplot(211, projection='3d')
-    ax.set_title('Usable Ace')
-    get_figure(True, ax)
-    ax = fig.add_subplot(212, projection='3d')
-    ax.set_title('No Usable Ace')
-    get_figure(False, ax)
-    plt.show()
-
-
-def plot_policy(policy):
-    def get_Z(x, y, usable_ace):
-        if (x, y, usable_ace) in policy:
-            return policy[x, y, usable_ace]
-        else:
-            return 1
-
-    def get_figure(usable_ace, ax):
-        x_range = np.arange(11, 22)
-        y_range = np.arange(10, 0, -1)
-        X, Y = np.meshgrid(x_range, y_range)
-        Z = np.array([[get_Z(x, y, usable_ace) for x in x_range] for y in y_range])
-        surf = ax.imshow(Z, cmap=plt.get_cmap('Pastel2', 2), vmin=0, vmax=1, extent=[10.5, 21.5, 0.5, 10.5])
-        plt.xticks(x_range)
-        plt.yticks(y_range)
-        plt.gca().invert_yaxis()
-        ax.set_xlabel('Player\'s Current Sum')
-        ax.set_ylabel('Dealer\'s Showing Card')
-        ax.grid(color='w', linestyle='-', linewidth=1)
-        divider = make_axes_locatable(ax)
-        cax = divider.append_axes("right", size="5%", pad=0.1)
-        cbar = plt.colorbar(surf, ticks=[0, 1], cax=cax)
-        cbar.ax.set_yticklabels(['0 (STICK)', '1 (HIT)'])
-
-    fig = plt.figure(figsize=(15, 15))
-    ax = fig.add_subplot(121)
-    ax.set_title('Usable Ace')
-    get_figure(True, ax)
-    ax = fig.add_subplot(122)
-    ax.set_title('No Usable Ace')
-    get_figure(False, ax)
-    plt.show()
+if __name__ == '__main__':
+	env = gym.make('Blackjack-v0')
+	# print(env.observation_space)  # (current_sum 0-31, deal's face up 1-10, usable_ace 0-1), 32*10*2
+	# print(env.action_space)  # stick, hit
+	V = on_policy_MC_prediction_every(env, 50000)
+	plot_blackjack_values(V)
