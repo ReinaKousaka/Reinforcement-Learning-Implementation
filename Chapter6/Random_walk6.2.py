@@ -3,7 +3,8 @@ import random
 import matplotlib.pyplot as plt
 from collections import defaultdict
 
-TRUE_VALUE = [1 / 6, 2 / 6, 3 / 6, 4 / 6, 5 / 6]
+TRUE_VALUE = [0, 1 / 6, 2 / 6, 3 / 6, 4 / 6, 5 / 6, 0]
+INITIAL_VALUE = [0, 0.5, 0.5, 0.5, 0.5, 0.5, 0]
 
 class Env:
 	def __init__(self):
@@ -36,28 +37,25 @@ def generate_episode(env):
 def compute_RMS(v):
 	accumulator = 0
 	for i in range(1, 6):
-		accumulator += (v[i] - TRUE_VALUE[i - 1]) ** 2
+		accumulator += ((v[i] - TRUE_VALUE[i]) ** 2) / 5
 	return np.sqrt(accumulator)
 
-def MC_prediction(env, num_episode=100):
-	returns = defaultdict(list)
-	error = []
-	v = np.zeros(env.nS)
+def MC_prediction(env, alpha=0.05, num_episode=100):
+	v = INITIAL_VALUE.copy()
+	error, total_error = [], 0
 	for _ in range(num_episode):
 		episode = generate_episode(env)
-		G = episode[-1][1]  # since the discount factor is 1, all the return should be the same
+		G = episode[-1][1]
 		for state, reward in episode:
-			returns[state].append(G)
-			v[state] = np.mean(returns[state])
-		error.append(compute_RMS(v))
-	for key, value in returns.items():
-		v[key] = np.mean(value)
+			v[state] += alpha * (G - v[state])
+		total_error += compute_RMS(v)
+		error.append(total_error / (_ + 1))
 	return v, error
 
-def TD_0_prediction(env, alpha=0.1, num_episode=100):
+def TD_0_prediction(env, alpha=0.05, num_episode=100):
 	""" we dont have policy in this question"""
-	v = np.zeros(env.nS)
-	error = []
+	v = INITIAL_VALUE.copy()
+	error, total_error = [], 0
 	for _ in range(num_episode):
 		env.reset()
 		while True:
@@ -66,27 +64,34 @@ def TD_0_prediction(env, alpha=0.1, num_episode=100):
 			v[pre_state] += alpha * (reward + v[state] - v[pre_state])
 			if done:
 				break
-		error.append(compute_RMS(v))
+		total_error += compute_RMS(v)
+		error.append(total_error / (_ + 1))
 	return v, error
 
-def draw(env, v, error, label, num_episode=100):
+def draw(env, num_episode=100):
 	x = ['A', 'B', 'C', 'D', 'E']
-	plt.subplot(1, 2, 1)
-	plt.plot(x, v[1: env.nS - 1], label=label)
+	fig, (ax1, ax2) = plt.subplots(nrows=1, ncols=2)
 
-	plt.subplot(1, 2, 2)
-	plt.plot(np.arange(num_episode), error, label=label)
+	v, error = TD_0_prediction(env)
+	ax1.plot(x, v[1: 6], label='TD', color='blue')
+	ax2.plot(np.arange(num_episode), error, label='TD', color='blue')
+	v, error = MC_prediction(env)
+	ax1.plot(x, v[1: 6], label='MC', color='red')
+	ax2.plot(np.arange(num_episode), error, label='MC', color='red')
+	ax1.plot(x, TRUE_VALUE[1: 6], label='True Values', color='green')
 	
+	ax1.set(title='Estimated Value')
+	ax2.set(title='Averaged Empirical RMS Error')
+	ax1.legend()
+	ax2.legend()
+	fig.tight_layout()
+	plt.show()
 
 if __name__ == '__main__':
 	env = Env()
-	v, error = MC_prediction(env)
-	draw(env, v, error, 'MC')
-	v, error = TD_0_prediction(env)
-	draw(env, v, error, 'TD')
+	draw(env)
 
 
-	plt.legend()
-	plt.show()
+
 
 
