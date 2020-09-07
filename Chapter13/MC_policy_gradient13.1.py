@@ -1,10 +1,20 @@
 import numpy as np
 import torch
+import torch.nn as nn
+import torch.optim as optim
+import torch.autograd as autograd
+from torch.autograd import Variable
 from matplotlib import pyplot as plt
-import sys
+from tqdm import tqdm
 
-LEFT, RIGHT = -1, 1
 
+LEFT =0 
+RIGHT = 1
+MAX_EPISODES = 1000
+MAX_TIMESTEPS = 100
+
+ALPHA = 1/(2**13)
+GAMMA = 1
 class Env():
 	""" S = {0, 1, 2, 3}, where 3 is the terminal state
 		A = {LEFT, RIGHT}
@@ -16,70 +26,87 @@ class Env():
 		self.state = 0
 
 	def step(self, action):
-		factor = -1 if self.state == 1 else 1
-		self.state += factor * action
+		if self.state == 1 and action == LEFT:
+			self.state += 1
+		elif self.state == 1 and action == RIGHT:
+			self.state -= 1
+		elif action == LEFT:
+			self.state -= 1
+		else:
+			self.state += 1
 		done = True if self.state == 3 else False
 		return -1, done 
 
-class Agent():
-	def __init__(self, env, alpha):
-		self.env = env
-		self.alpha = alpha
-		self.x = torch.tensor([[0, 1], [1, 0]], dtype=torch.double)
-		self.theta = torch.tensor([0., 0.], dtype=torch.double, requires_grad=True)
+
+class reinforce(nn.Module):
+	def __init__(self):
+		super(reinforce, self).__init__()
+		# policy network
+		self.linear = nn.Linear(2, 1)
+
+	def forward(self, x):
+		out = self.linear(x)
+		out = torch.exp(out)
+		out = torch.softmax(out, dim=0)
+		return out
+
+	def pi(self, s, a):
+		probs = self.forward(X)
+		return probs[a]
+
+	def update_weight(self, states, actions, rewards, optimizer):
+		G = Variable(torch.Tensor([0]))
+		# for each step of the episode t = T - 1, ..., 0
+		# r_tt represents r_{t+1}
+		for s_t, a_t, r_tt in zip(states[::-1], actions[::-1], rewards[::-1]):
+			G = Variable(torch.Tensor([r_tt])) + GAMMA * G
+			loss = (-1.0) * G * torch.log(self.pi(s_t, a_t))
+			# update policy parameter \theta
+			optimizer.zero_grad()
+			loss.backward()
+			optimizer.step()
+
+def get_action(agent):
+	if np.random.random() < agent(X)[0].item():
+		return 0
+	else:
+		return 1
+
+
+X = torch.tensor([[0, 1],
+					[1, 0]], dtype=torch.float32)
+
+
+if __name__ == "__main__":
+	env = Env()
+	total_reward = []
+	num_epochs = 10
+	for epoch in tqdm(range(num_epochs)):
+		agent = reinforce()
+		optimizer = optim.Adam(agent.parameters(), lr=ALPHA)
+		for i_episode in range(MAX_EPISODES):
+			state = env.reset()
+			states = []
+			actions = []
+			rewards = [0]   # no reward at t = 0
+			for timesteps in range(MAX_TIMESTEPS):
+				action = get_action(agent)
+				states.append(state)
+				actions.append(action)
+				reward, done= env.step(action)
+				rewards.append(reward)
+				if done:
+					break
+			agent.update_weight(states, actions, rewards, optimizer)
+			if epoch == 0:
+				total_reward.append([np.sum(rewards)])
+			else:
+				total_reward[i_episode].append(np.sum(rewards))
 			
+	for i in range(MAX_EPISODES):
+		total_reward[i] = np.mean(total_reward[i])
+	fig, ax = plt.subplots(1, 1)
+	ax.plot(np.arange(1000) + 1, total_reward)
+	plt.show()
 
-	def get_episode(self):
-		self.env.reset()
-		trajectory = []
-		while True:
-			pre_state = self.env.state
-			h = torch.matmul(self.theta, self.x)
-			temp = torch.exp(h[0]) / (torch.sum(torch.exp(h)))
-			action = LEFT if np.random.random() < temp else RIGHT
-			reward, done = self.env.step(action)
-			trajectory.append((pre_state, action, reward))
-			if done:
-				return trajectory
-	
-	def MC_policy_gradient(self, num_episodes, gamma=1):
-		self.theta = torch.tensor([0., 0.], dtype=torch.double, requires_grad=True)
-		total_reward = np.zeros(num_episodes)
-		for _ in range(num_episodes):
-			print('\r{}/{}.'.format(_, num_episodes), end=' ')
-			print(self.theta)
-			sys.stdout.flush()  # for debugging
 
-			trajectory = self.get_episode()
-			rewards = list(zip(*trajectory))[2]
-			T = len(trajectory)
-			for t, (state, action, reward) in enumerate(trajectory):
-				discount_factor = gamma ** np.arange(T - t)
-				G = np.dot(discount_factor, rewards[t:])
-				
-				h = torch.matmul(self.theta, self.x)
-				if action == LEFT:
-					pi = torch.exp(h[0]) / (torch.sum(torch.exp(h)))
-				else:
-					pi = torch.exp(h[1]) / (torch.sum(torch.exp(h)))
-				pi = torch.log(pi)
-				pi.backward() 
-				self.theta.data += self.alpha * (gamma ** t) * G * self.theta.grad
-				self.theta.grad.zero_()
-			total_reward[_] = np.sum(rewards)
-		return total_reward
-
-env = Env()
-num_episodes = 1000
-num_runs = 100
-agent = Agent(env, 1e-9)
-# records = []
-# for run in range(num_runs):
-# 	records.append(agent.MC_policy_gradient(num_episodes))
-# y = np.mean(records, axis=0)
-y = agent.MC_policy_gradient(num_episodes)
-x = np.arange(num_episodes) + 1
-fig, ax = plt.subplots(1, 1)
-ax.plot(x, y, label='1e-6')
-ax.legend()
-plt.show()

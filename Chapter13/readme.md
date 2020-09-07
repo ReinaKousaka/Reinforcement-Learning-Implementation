@@ -1,2 +1,2 @@
 # Policy Gradient Methods
-13.1 Monte Carlo Policy Gradient Control **The gradient descent process may stuck!! The gradient vanish**<br />
+13.1 Monte Carlo Policy Gradient Control **It seems the result is bad**<br />
