@@ -6,107 +6,116 @@ import torch.autograd as autograd
 from torch.autograd import Variable
 from matplotlib import pyplot as plt
 from tqdm import tqdm
+import random
 
 
 LEFT =0 
 RIGHT = 1
-MAX_EPISODES = 1000
-MAX_TIMESTEPS = 100
 
 ALPHA = 1/(2**13)
 GAMMA = 1
+X = torch.tensor([[0, 1], [1, 0]], dtype=torch.float32)
+
 class Env():
-	""" S = {0, 1, 2, 3}, where 3 is the terminal state
-		A = {LEFT, RIGHT}
-	"""
 	def __init__(self):
 		self.state = 0
 
 	def reset(self):
 		self.state = 0
+		return 0
 
 	def step(self, action):
-		if self.state == 1 and action == LEFT:
-			self.state += 1
-		elif self.state == 1 and action == RIGHT:
-			self.state -= 1
-		elif action == LEFT:
-			self.state -= 1
+		if self.state == 1:
+			self.state = 2 if action == LEFT else 0
+			return self.state, -1, False
+		self.state = self.state - 1 if action == LEFT else self.state + 1
+		self.state = max(0, self.state)
+		if self.state == 3:
+			return self.state, -1, True
 		else:
-			self.state += 1
-		done = True if self.state == 3 else False
-		return -1, done 
+			return self.state, -1, False
 
 
-class reinforce(nn.Module):
-	def __init__(self):
-		super(reinforce, self).__init__()
+class REINFORCE(nn.Module):
+	def __init__(self, lr):
+		super(REINFORCE, self).__init__()
 		# policy network
-		self.linear = nn.Linear(2, 1)
+		self.linear1 = nn.Linear(2, 10)
+		self.linear2 = nn.Linear(10, 1)
+
+		self.optimizer = torch.optim.SGD(self.parameters(), lr=lr)
 
 	def forward(self, x):
-		out = self.linear(x)
+		out = self.linear1(x)
+		out = self.linear2(out)
 		out = torch.exp(out)
 		out = torch.softmax(out, dim=0)
 		return out
 
-	def pi(self, s, a):
-		probs = self.forward(X)
-		return probs[a]
+	# def pi(self, s, a):
+	# 	probs = self.forward(X)
+	# 	return probs[a]
 
-	def update_weight(self, states, actions, rewards, optimizer):
-		G = Variable(torch.Tensor([0]))
-		# for each step of the episode t = T - 1, ..., 0
-		# r_tt represents r_{t+1}
-		for s_t, a_t, r_tt in zip(states[::-1], actions[::-1], rewards[::-1]):
-			G = Variable(torch.Tensor([r_tt])) + GAMMA * G
-			loss = (-1.0) * G * torch.log(self.pi(s_t, a_t))
-			# update policy parameter \theta
-			optimizer.zero_grad()
-			loss.backward()
-			optimizer.step()
+	# def update_weight(self, states, actions, rewards):
+	# 	G = Variable(torch.Tensor([0]))
+	# 	for s_t, a_t, r_tt in zip(states[::-1], actions[::-1], rewards[::-1]):
+	# 		G = Variable(torch.Tensor([r_tt])) + GAMMA * G
+	# 		loss = (-1.0) * G * torch.log(self.pi(s_t, a_t))
+	# 		# update policy parameter \theta
+	# 		optimizer.zero_grad()
+	# 		loss.backward()
+	# 		optimizer.step()
 
-def get_action(agent):
-	if np.random.random() < agent(X)[0].item():
-		return 0
-	else:
-		return 1
+class Agent:
+	def __init__(self, lr, env, gamma=1):
+		self.model = REINFORCE(lr)
+		self.env = env
+		self.gamma = gamma
+	
+	def get_action(self, state):
+		# The state does not matter in this question.
+		if random.random() < self.model(X)[0].item():
+			return 0
+		else:
+			return 1
+	
+	def generate_episode(self):
+		done = False
+		trajectory = []
+		pre_state = self.env.reset()
+		while not done:
+			action = self.get_action(pre_state)
+			state, reward, done = self.env.step(action)
+			trajectory.append([pre_state, action, reward])
+			if done:
+				return trajectory
+			pre_state = state
+	
+	def learn(self):
+		n_episodes = 1000
+		y = []
+		for _ in range(n_episodes):
+			trajectory = self.generate_episode()
+			G = 0
+			total_reward = 0
+			for state, action, reward in reversed(trajectory):
+				total_reward += reward
+				G = G * self.gamma + reward
+				pi = self.model(X)[action] 
+				loss = -1.0 * G * torch.log(pi)
+				self.model.optimizer.zero_grad()
+				loss.backward()
+				self.model.optimizer.step()
+			y.append(total_reward)
+		fig, ax = plt.subplots(1, 1)
+		ax.plot(np.arange(1000) + 1, y)
+		plt.show()
 
-
-X = torch.tensor([[0, 1],
-					[1, 0]], dtype=torch.float32)
 
 
 if __name__ == "__main__":
 	env = Env()
-	total_reward = []
-	num_epochs = 10
-	for epoch in tqdm(range(num_epochs)):
-		agent = reinforce()
-		optimizer = optim.Adam(agent.parameters(), lr=ALPHA)
-		for i_episode in range(MAX_EPISODES):
-			state = env.reset()
-			states = []
-			actions = []
-			rewards = [0]   # no reward at t = 0
-			for timesteps in range(MAX_TIMESTEPS):
-				action = get_action(agent)
-				states.append(state)
-				actions.append(action)
-				reward, done= env.step(action)
-				rewards.append(reward)
-				if done:
-					break
-			agent.update_weight(states, actions, rewards, optimizer)
-			if epoch == 0:
-				total_reward.append([np.sum(rewards)])
-			else:
-				total_reward[i_episode].append(np.sum(rewards))
-			
-	for i in range(MAX_EPISODES):
-		total_reward[i] = np.mean(total_reward[i])
-	fig, ax = plt.subplots(1, 1)
-	ax.plot(np.arange(1000) + 1, total_reward)
-	plt.show()
+	agent = Agent(ALPHA, env)
+	agent.learn()
 
 
