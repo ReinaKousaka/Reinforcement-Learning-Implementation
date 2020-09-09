@@ -2,21 +2,15 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torch.autograd as autograd
-from torch.autograd import Variable
 from matplotlib import pyplot as plt
 from tqdm import tqdm
 import random
 
-
 LEFT =0 
 RIGHT = 1
-
-ALPHA = 1/(2**13)
-GAMMA = 1
 X = torch.tensor([[0, 1], [1, 0]], dtype=torch.float32)
 
-class Env():
+class Env:
 	def __init__(self):
 		self.state = 0
 
@@ -41,30 +35,19 @@ class REINFORCE(nn.Module):
 		super(REINFORCE, self).__init__()
 		# policy network
 		self.linear1 = nn.Linear(2, 10)
+		self.relu = nn.ReLU()
 		self.linear2 = nn.Linear(10, 1)
 
 		self.optimizer = torch.optim.SGD(self.parameters(), lr=lr)
 
 	def forward(self, x):
 		out = self.linear1(x)
+		out = self.relu(out)
 		out = self.linear2(out)
 		out = torch.exp(out)
 		out = torch.softmax(out, dim=0)
 		return out
 
-	# def pi(self, s, a):
-	# 	probs = self.forward(X)
-	# 	return probs[a]
-
-	# def update_weight(self, states, actions, rewards):
-	# 	G = Variable(torch.Tensor([0]))
-	# 	for s_t, a_t, r_tt in zip(states[::-1], actions[::-1], rewards[::-1]):
-	# 		G = Variable(torch.Tensor([r_tt])) + GAMMA * G
-	# 		loss = (-1.0) * G * torch.log(self.pi(s_t, a_t))
-	# 		# update policy parameter \theta
-	# 		optimizer.zero_grad()
-	# 		loss.backward()
-	# 		optimizer.step()
 
 class Agent:
 	def __init__(self, lr, env, gamma=1):
@@ -107,15 +90,19 @@ class Agent:
 				loss.backward()
 				self.model.optimizer.step()
 			y.append(total_reward)
-		fig, ax = plt.subplots(1, 1)
-		ax.plot(np.arange(1000) + 1, y)
-		plt.show()
+		return y	
+		
 
 
 
 if __name__ == "__main__":
 	env = Env()
-	agent = Agent(ALPHA, env)
-	agent.learn()
-
-
+	agent1 = Agent(1/(2**13), env)
+	agent2 = Agent(1/(2**12), env)
+	y1 = agent1.learn()
+	y2 = agent2.learn()
+	fig, ax = plt.subplots(1, 1)
+	ax.plot(np.arange(1000) + 1, y1, label='13')
+	ax.plot(np.arange(1000) + 1, y2, label='12')
+	ax.legend(loc='best')
+	plt.show()
