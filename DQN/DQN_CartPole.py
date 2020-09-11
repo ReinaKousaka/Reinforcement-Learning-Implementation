@@ -3,10 +3,8 @@
 import gym
 import torch
 import torch.nn as nn
-import time
 import random
 import numpy as np
-from collections import namedtuple
 from matplotlib import pyplot as plt
 import sys
 
@@ -21,6 +19,8 @@ class Net(nn.Module):
 			nn.ReLU(),
 			nn.Linear(128, num_actions),
 		)
+		self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+		self.to(self.device)
 	
 	def forward(self, x):
 		return self.net(x)
